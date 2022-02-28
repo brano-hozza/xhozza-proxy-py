@@ -17,6 +17,7 @@
 import socketserver as SocketServer
 import re
 import logging
+from wsgiref.util import request_uri
 
 logging.basicConfig(format='%(asctime)s[::]%(message)s',
                     filename='proxy.log', level=logging.INFO, datefmt='%H:%M:%S')
@@ -130,6 +131,28 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 break
         return origin
 
+    def getCallID(self):
+        for line in self.data:
+            md = re.compile("^Call-ID: ([^ ]*)").search(line)
+            if md:
+                return md.group(1)
+        return 0
+
+    def pickedUp(self):
+        request_uri = self.data[0]
+        ok200 = re.compile("^SIP/2.0 200 Ok").search(request_uri)
+
+        for line in self.data:
+            if re.compile("^CSeq: 20 INVITE").search(line) and ok200:
+                return True
+        return False
+
+    def validStart(self):
+        for line in self.data:
+            if re.compile("^Route:").search(line):
+                return False
+        return True
+
     def sendResponse(self, code):
         request_uri = "SIP/2.0 " + code
         self.data[0] = request_uri
@@ -158,7 +181,6 @@ class UDPHandler(SocketServer.BaseRequestHandler):
         data.append("")
         text = "\r\n".join(data)
         self.socket.sendto(text.encode("utf-8"), self.client_address)
-        logging.info(f'< {request_uri}')
 
     def processRegister(self):
         global registrar
@@ -178,7 +200,8 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                     if md:
                         contact = md.group(1)
 
-        logging.info(f"> From: {fromm}, Contact:{contact}")
+        logging.info(
+            f"> Registrovany novy uzivatel: {fromm} [Adresa: {contact}]")
         registrar[fromm] = [contact, self.socket,
                             self.client_address]
         self.sendResponse("200 Registrovany!")
@@ -190,6 +213,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
             logging.info(f'> Nezaregistrovany zdroj({origin})')
             return
         destination = self.getDestination()
+        valid_start = self.validStart()
         if len(destination) > 0:
             if destination in registrar:
                 socket, claddr = self.getSocketInfo(destination)
@@ -199,8 +223,10 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 data.insert(1, recordroute)
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
-                logging.info(
-                    f"> OK {origin} -> {destination}({claddr[0]}:{claddr[1]})")
+                callId = self.getCallID()
+                if callId and valid_start:
+                    logging.info(
+                        f"> Zvonenie [{callId}] {origin} -> {destination}")
             else:
                 self.sendResponse("480 Nezaregistrovany uzivatel")
                 logging.info(f'> Nezaregistrovany ciel({destination})')
@@ -219,7 +245,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 data.insert(1, recordroute)
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
-                logging.info(f'> OK {destination}')
+                logging.debug(f'> ACK OK {destination}')
 
     def processNonInvite(self):
         origin = self.getOrigin()
@@ -229,7 +255,6 @@ class UDPHandler(SocketServer.BaseRequestHandler):
             return
         destination = self.getDestination()
         if len(destination) > 0:
-            logging.info("destination %s" % destination)
             if destination in registrar:
                 socket, claddr = self.getSocketInfo(destination)
                 self.data = self.addTopVia()
@@ -238,7 +263,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 data.insert(1, recordroute)
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
-                logging.info(f"> OK {origin} -> {destination}")
+                logging.debug(f"> Non-invite OK {origin} -> {destination}")
             else:
                 self.sendResponse("406 Nezaregistrovany uzivatel")
                 logging.info(
@@ -250,66 +275,73 @@ class UDPHandler(SocketServer.BaseRequestHandler):
     def processCode(self):
         origin = self.getOrigin()
         if len(origin) > 0:
-            logging.info("origin %s" % origin)
             if origin in registrar:
                 socket, claddr = self.getSocketInfo(origin)
                 self.data = self.removeRouteHeader()
                 data = self.removeTopVia()
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
-                logging.info(f'> Spracovanie kodu: OK({origin})')
+                if self.pickedUp():
+                    callId = self.getCallID()
+                    destination = self.getDestination()
+                    logging.info(
+                        f'> Zacatie hovoru [{callId}] {destination} -> {origin}')
 
     def processRequest(self):
-        # print "processRequest"
         if len(self.data) > 0:
             request_uri = self.data[0]
             if rx_register.search(request_uri):
-                logging.info(f'REGISTER')
+                logging.debug(f'REGISTER')
                 self.processRegister()
             elif rx_invite.search(request_uri):
-                logging.info(f'INVITE')
+                logging.debug(f'INVITE')
                 self.processInvite()
             elif rx_ack.search(request_uri):
-                logging.info(f'ACK')
+                logging.debug(f'ACK')
                 self.processAck()
             elif rx_bye.search(request_uri):
-                logging.info(f'BYE')
+                logging.debug(f'BYE')
+                callId = self.getCallID()
+                origin = self.getOrigin()
+                destination = self.getDestination()
+                logging.info(
+                    f'> Koniec hovoru [{callId}] {origin}->{destination}')
                 self.processNonInvite()
             elif rx_cancel.search(request_uri):
-                logging.info(f'CANCEL')
+                logging.debug(f'CANCEL')
                 self.processNonInvite()
             elif rx_options.search(request_uri):
-                logging.info(f'OPTIONS')
+                logging.debug(f'OPTIONS')
                 self.processNonInvite()
             elif rx_info.search(request_uri):
-                logging.info(f'INFO')
+                logging.debug(f'INFO')
                 self.processNonInvite()
             elif rx_message.search(request_uri):
-                logging.info(f'MESSAGE')
+                logging.debug(f'MESSAGE')
                 self.processNonInvite()
             elif rx_refer.search(request_uri):
-                logging.info(f'REFER')
+                logging.debug(f'REFER')
                 self.processNonInvite()
             elif rx_prack.search(request_uri):
-                logging.info(f'PRACK')
+                logging.debug(f'PRACK')
                 self.processNonInvite()
             elif rx_update.search(request_uri):
-                logging.info(f'UPDATE')
+                logging.debug(f'UPDATE')
                 self.processNonInvite()
             elif rx_subscribe.search(request_uri):
-                logging.info(f'SUBSCRIBE')
+                logging.debug(f'SUBSCRIBE')
                 self.sendResponse("200 0K")
             elif rx_publish.search(request_uri):
-                logging.info(f'PUBLISH')
+                logging.debug(f'PUBLISH')
                 self.sendResponse("200 0K")
             elif rx_notify.search(request_uri):
-                logging.info(f'NOTIFY')
+                logging.debug(f'NOTIFY')
                 self.sendResponse("200 0K")
             elif rx_code.search(request_uri):
-                logging.info(f'PROCESS CODE')
+                logging.debug(f'PROCESS CODE')
                 self.processCode()
             else:
-                logging.info(f"> Neplatna ziadost na proxy: {request_uri}")
+                logging.debug(f"> Neplatna ziadost na proxy: {request_uri}")
 
     def handle(self):
         data = self.request[0]
@@ -318,7 +350,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
         try:
             data = data.decode('utf-8')
         except UnicodeDecodeError:
-            return logging.info('ERR: Linphone XML probably')
+            return logging.debug('ERR: Linphone XML probably')
 
         self.data = data.split("\r\n")
         self.socket = self.request[1]
