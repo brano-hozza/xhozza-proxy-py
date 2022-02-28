@@ -14,13 +14,9 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import encodings
 import socketserver as SocketServer
 import re
 import logging
-import socket
-
-import sys
 
 logging.basicConfig(format='%(asctime)s[::]%(message)s',
                     filename='proxy.log', level=logging.INFO, datefmt='%H:%M:%S')
@@ -63,7 +59,7 @@ rx_expires = re.compile("^Expires: (.*)$")
 # global dictionnary
 registrar = {}
 
-ipaddress = '192.168.1.219'  # Upravit podla aktualnej pozicie proxy v sieti
+ipaddress = '10.10.36.113'  # Upravit podla aktualnej pozicie proxy v sieti
 recordroute = f"Record-Route: <sip:{ipaddress}:5060;lr>"
 topvia = f"Via: SIP/2.0/UDP {ipaddress}:5060"
 
@@ -84,23 +80,17 @@ class UDPHandler(SocketServer.BaseRequestHandler):
         for line in self.data:
             if rx_via.search(line) or rx_cvia.search(line):
                 md = rx_branch.search(line)
-                via = ""
                 if md:
                     branch = md.group(1)
-                    via = f"{topvia};branch={branch}"
+                    via = "%s;branch=%sm" % (topvia, branch)
+                    data.append(via)
                 # rport processing
                 if rx_rport.search(line):
-                    text = f"received={self.client_address[0]};rport={self.client_address[1]}"
-                    if md:
-                        via = f"{via};{text}"
-                    else:
-                        via = line.replace("rport", text)
+                    text = "received=%s;rport=%d" % self.client_address
+                    via = line.replace("rport", text)
                 else:
-                    text = f"received={self.client_address[0]}"
-                    if md:
-                        via = f"{via};{text}"
-                    else:
-                        via = f"{line};{text}"
+                    text = "received=%s" % self.client_address[0]
+                    via = "%s;%s" % (line, text)
                 data.append(via)
             else:
                 data.append(line)
