@@ -312,6 +312,8 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                     data[0] = "SIP/2.0 180 Zvonim..."
                 elif status_code == "487":
                     data[0] = "SIP/2.0 487 Zrusenie zvonenia"
+                elif status_code == "202":
+                    data[0] = "SIP/2.0 202 Prijatie prepojenia"
 
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
