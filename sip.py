@@ -157,6 +157,12 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 return False
         return True
 
+    def hasPriority(self):
+        for line in self.data:
+            if re.compile("^Priority: ").search(line):
+                return True
+        return False
+
     def sendResponse(self, code):
         request_uri = "SIP/2.0 " + code
         self.data[0] = request_uri
@@ -339,6 +345,13 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 self.processNonInvite()
             elif rx_message.search(request_uri):
                 logging.debug(f'MESSAGE')
+                callId = self.getCallID()
+                origin = self.getOrigin()
+                destination = self.getDestination()
+                if not self.hasPriority():
+                    logging.info(
+                        f'[{callId}]> Sprava: {origin}->{destination}')
+
                 self.processNonInvite()
             elif rx_refer.search(request_uri):
                 logging.debug(f'REFER')
