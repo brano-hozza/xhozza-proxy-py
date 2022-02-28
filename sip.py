@@ -140,10 +140,10 @@ class UDPHandler(SocketServer.BaseRequestHandler):
 
     def pickedUp(self):
         request_uri = self.data[0]
-        ok200 = re.compile("^SIP/2.0 200 Ok").search(request_uri)
+        ok200 = re.compile("^SIP/2.0 200").search(request_uri)
 
         for line in self.data:
-            if re.compile("^CSeq: 20 INVITE").search(line) and ok200:
+            if re.compile("^CSeq: ([^ ]*) INVITE").search(line) and ok200:
                 return True
         return False
 
