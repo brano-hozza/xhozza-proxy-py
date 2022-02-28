@@ -19,7 +19,7 @@ import re
 import logging
 from wsgiref.util import request_uri
 
-logging.basicConfig(format='%(asctime)s[::]%(message)s',
+logging.basicConfig(format='(%(asctime)s) %(message)s',
                     filename='proxy.log', level=logging.INFO, datefmt='%H:%M:%S')
 
 rx_register = re.compile("^REGISTER")
@@ -147,6 +147,10 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 return True
         return False
 
+    def getStatusCode(self):
+        request_uri = self.data[0]
+        return re.compile("^SIP/2.0 ([^ ]*)").search(request_uri).group(1)
+
     def validStart(self):
         for line in self.data:
             if re.compile("^Route:").search(line):
@@ -226,7 +230,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 callId = self.getCallID()
                 if callId and valid_start:
                     logging.info(
-                        f"> Zvonenie [{callId}] {origin} -> {destination}")
+                        f"[{callId}]> Zvonenie {origin} -> {destination}")
             else:
                 self.sendResponse("480 Nezaregistrovany uzivatel")
                 logging.info(f'> Nezaregistrovany ciel({destination})')
@@ -279,13 +283,30 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 socket, claddr = self.getSocketInfo(origin)
                 self.data = self.removeRouteHeader()
                 data = self.removeTopVia()
-                text = "\r\n".join(data)
-                socket.sendto(text.encode("utf-8"), claddr)
+                status_code = self.getStatusCode()
                 if self.pickedUp():
                     callId = self.getCallID()
                     destination = self.getDestination()
+                    data[0] = "SIP/2.0 200 Zdvihol som"
                     logging.info(
-                        f'> Zacatie hovoru [{callId}] {destination} -> {origin}')
+                        f'[{callId}]> Zacatie hovoru {destination} -> {origin}')
+
+                elif status_code == "200":
+                    data[0] = "SIP/2.0 200 Fajn"
+                elif status_code == "603":
+                    callId = self.getCallID()
+                    destination = self.getDestination()
+                    data[0] = "SIP/2.0 603 Nechcem hovorit"
+                    logging.info(
+                        f'[{callId}]> Odmietnuty hovor {destination} -> {origin}')
+                    print(self.data)
+                elif status_code == "100":
+                    data[0] = "SIP/2.0 100 Skusam spojit..."
+                elif status_code == "180":
+                    data[0] = "SIP/2.0 180 Zvonim..."
+
+                text = "\r\n".join(data)
+                socket.sendto(text.encode("utf-8"), claddr)
 
     def processRequest(self):
         if len(self.data) > 0:
@@ -305,7 +326,7 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                 origin = self.getOrigin()
                 destination = self.getDestination()
                 logging.info(
-                    f'> Koniec hovoru [{callId}] {origin}->{destination}')
+                    f'[{callId}]> Koniec hovoru {origin}->{destination}')
                 self.processNonInvite()
             elif rx_cancel.search(request_uri):
                 logging.debug(f'CANCEL')
