@@ -60,7 +60,7 @@ rx_expires = re.compile("^Expires: (.*)$")
 # global dictionnary
 registrar = {}
 
-ipaddress = '10.10.36.113'  # Upravit podla aktualnej pozicie proxy v sieti
+ipaddress = '147.175.161.180'  # Upravit podla aktualnej pozicie proxy v sieti
 recordroute = f"Record-Route: <sip:{ipaddress}:5060;lr>"
 topvia = f"Via: SIP/2.0/UDP {ipaddress}:5060"
 
@@ -310,6 +310,8 @@ class UDPHandler(SocketServer.BaseRequestHandler):
                     data[0] = "SIP/2.0 100 Skusam spojit..."
                 elif status_code == "180":
                     data[0] = "SIP/2.0 180 Zvonim..."
+                elif status_code == "487":
+                    data[0] = "SIP/2.0 487 Zrusenie zvonenia"
 
                 text = "\r\n".join(data)
                 socket.sendto(text.encode("utf-8"), claddr)
