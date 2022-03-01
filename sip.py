@@ -14,10 +14,10 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import socket
 import socketserver as SocketServer
 import re
 import logging
-from wsgiref.util import request_uri
 
 logging.basicConfig(format='(%(asctime)s) %(message)s',
                     filename='proxy.log', level=logging.INFO, datefmt='%H:%M:%S')
@@ -60,7 +60,8 @@ rx_expires = re.compile("^Expires: (.*)$")
 # global dictionnary
 registrar = {}
 
-ipaddress = '147.175.161.180'  # Upravit podla aktualnej pozicie proxy v sieti
+# Upravit podla aktualnej pozicie proxy v sieti
+ipaddress = socket.gethostbyname(socket.gethostname())
 recordroute = f"Record-Route: <sip:{ipaddress}:5060;lr>"
 topvia = f"Via: SIP/2.0/UDP {ipaddress}:5060"
 
